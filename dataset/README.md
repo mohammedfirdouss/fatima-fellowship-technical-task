@@ -227,7 +227,7 @@ effective for small models in the 1-7B range.
 @dataset{qwen35_4b_base_blind_spots_2026,
   title   = {Qwen3.5-4B-Base Blind Spots},
   year    = {2026},
-  url     = {https://huggingface.co/datasets/YOUR_USERNAME/qwen35-4b-base-blind-spots},
+  url     = {https://huggingface.co/datasets/mohammedfirdouss/qwen35-4b-base-blind-spots},
   note    = {Dataset of 12 diverse failure cases for Qwen/Qwen3.5-4B-Base}
 }
 ```
