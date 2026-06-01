@@ -1,4 +1,6 @@
-# Fatima Fellowship Technical Task — Blind Spots of Frontier Models
+# Fatima Fellowship Technical Task 
+
+## Blind Spots of Frontier Models
 
 This project probes the failure modes ("blind spots") of
 [`Qwen/Qwen3.5-4B-Base`](https://huggingface.co/Qwen/Qwen3.5-4B-Base),
