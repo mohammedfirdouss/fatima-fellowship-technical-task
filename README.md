@@ -34,10 +34,9 @@ _Dataset revision: June 2026._
 1. Open `colab_notebook.ipynb` in [Colab](https://colab.google.com/).
 2. Set runtime to a GPU with fast bfloat16 - **L4 or A10G** (a T4 works but lacks fast
    bfloat16; see the dtype note below).
-3. Run all cells. The notebook downloads `prompts.jsonl`, runs 36 probes (3 failures +
-   1 control per category) with 8-bit quantization, auto-classifies each output, prints
-   the failure-rate summary, and saves `blind_spots_data.jsonl`. The full 84-prompt set
-   is in `dataset/data/prompts.jsonl` if you want to run everything.
+3. Run all cells. The notebook downloads `prompts.jsonl`, runs 12 probes (1 failure per
+   category) in bfloat16, auto-classifies each output, prints the summary, and saves
+   `blind_spots_data.jsonl`. The full 84-prompt set is in `dataset/data/prompts.jsonl`.
 4. Spot-check the auto labels, then use that file to update `dataset/data/train.jsonl`.
 
 ### Option B: Modal
