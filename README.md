@@ -63,13 +63,12 @@ answers. We record `output_coherent` and `answer_correct` separately and derive
 `failure_mode ∈ {format_failure, reasoning_failure, correct}`. The two imply different
 fixes (instruction/format tuning vs chain-of-thought / domain data).
 
-**dtype matters — so we keep both.** An earlier run used `float16` and produced
-incoherent symbol-salad across the board — the classic signature of float16 numerical
-overflow on Qwen-class models, not a real blind spot. The pipeline now runs **both
-`float16` and `bfloat16` on all 84 prompts and stores both** under a per-record `runs`
-object. The contrast is the test: if float16 is garbage even on the easy controls while
-bfloat16 is coherent, the float16 "failures" are numerical, not cognitive. See the caveat
-in `dataset/README.md`.
+**dtype matters — bfloat16 is the primary run.** An earlier run used `float16` and
+produced incoherent symbol-salad across all 12 categories (including easy controls) —
+the classic signature of float16 numerical overflow on Qwen-class models, not a real
+blind spot. That result confirms the float16 failures are a numerical artifact. The Colab
+notebook therefore runs **bfloat16 only**; the original 12 float16 outputs are preserved
+in `train.jsonl` under `runs.float16` for reference. See the caveat in `dataset/README.md`.
 
 ## Model
 

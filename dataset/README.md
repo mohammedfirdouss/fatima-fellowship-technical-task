@@ -66,8 +66,9 @@ Each `runs.<dtype>` object holds one generation:
 | `answer_correct` | bool | Given a coherent output, was the answer right? |
 | `failure_mode` | string | `format_failure`, `reasoning_failure`, `correct`, or `pending` |
 
-We keep **both `float16` and `bfloat16` runs per prompt on purpose** — the comparison
-between them is itself a finding (see the caveat below).
+The `runs` object has slots for both `float16` and `bfloat16`. The 12 original
+prompts carry `runs.float16` results (all incoherent — see the caveat below); the
+remaining records carry `runs.bfloat16` from the primary bfloat16 run.
 
 `dataset/data/prompts.jsonl` holds just the inputs (no outputs) and is the canonical
 source the notebook and Modal runner consume. `dataset/data/train.jsonl` is the full
@@ -112,11 +113,10 @@ narrow exponent range can overflow in attention/MoE layers; bfloat16 has the ran
 stable.
 
 **Therefore those 12 `format_failure` labels are confounded and should be treated as
-preliminary.** Rather than discard the float16 data, the pipeline now runs **both dtypes
-on all 84 prompts and stores both** (`runs.float16` and `runs.bfloat16`). The contrast is
-the cleanest possible test of the artifact hypothesis: if float16 is incoherent even on
-the easy controls while bfloat16 is coherent on them, the float16 "failures" are
-numerical, not cognitive.
+preliminary.** The float16 results are preserved in `runs.float16` for reference. The
+primary analysis uses **bfloat16**, which has the exponent range to stay stable through
+Qwen3.5's attention and MoE layers. The Colab notebook runs bfloat16 only; the Modal
+runner still supports both dtypes for completeness.
 
 ## Results
 
@@ -129,20 +129,13 @@ numerical, not cognitive.
 
 | dtype | group | n | coherent | correct | format_failure | reasoning_failure |
 |---|---|---|---|---|---|---|
-| float16 | failure probes | 60 | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| float16 | controls | 24 | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
 | bfloat16 | failure probes | 60 | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
 | bfloat16 | controls | 24 | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
+| float16 (reference) | original 12 probes | 12 | 0/12 (0%) | 0/12 (0%) | 12/12 | 0/12 |
 
-Two questions this table answers:
-1. **Is the incoherence a dtype artifact?** Compare `coherent` for float16 vs bfloat16 on
-   the **controls**. If float16 controls are incoherent but bfloat16 controls are coherent,
-   the float16 garbage is numerical.
-2. **Are there genuine blind spots (in bfloat16)?** With a coherent run, compare the
-   bfloat16 `correct` rate on hard probes vs controls. Headline framing: *"On easy
-   in-domain controls the model answers correctly N% of the time; on the matched hard
-   probes the correct rate drops to M%, with the remaining failures splitting P% format /
-   Q% reasoning."*
+The headline framing: *"On easy in-domain controls the model answers correctly N% of
+the time; on the matched hard probes the correct rate drops to M%, with the remaining
+failures splitting P% format / Q% reasoning."*
 
 ## Failure Categories (5 probes + 2 controls each)
 
@@ -245,9 +238,9 @@ distillation from a larger teacher has been particularly effective for 1–7B mo
 ## Reproducing
 
 The accompanying repo provides a Colab notebook and a Modal runner. Both read
-`dataset/data/prompts.jsonl`, run all 84 prompts under **both `float16` and `bfloat16`**
-(greedy decoding), auto-classify each output, and print the per-dtype failure-rate
-summary and the dtype contrast.
+`dataset/data/prompts.jsonl` and run all 84 prompts with greedy decoding, auto-classify
+each output, and print the failure-rate summary. The Colab notebook runs **bfloat16
+only**; the Modal runner supports both dtypes.
 
 ## Citation
 
