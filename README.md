@@ -6,10 +6,10 @@ This project probes the failure modes ("blind spots") of
 [`Qwen/Qwen3.5-4B-Base`](https://huggingface.co/Qwen/Qwen3.5-4B-Base),
 a 4B-parameter pre-trained base language model released in February 2026.
 
-It uses **84 prompts across 12 reasoning categories** — **5 failure probes + 2 success
-controls per category** — so results can be reported as a *failure rate* (hard probes vs
+It uses **84 prompts across 12 reasoning categories** - **5 failure probes + 2 success
+controls per category** - so results can be reported as a *failure rate* (hard probes vs
 easy in-domain controls) rather than as a handful of anecdotes. Each output is labelled on
-two axes — **was it coherent** and **was it correct** — separating *format failures*
+two axes - **was it coherent** and **was it correct** - separating *format failures*
 (incoherent / off-format) from *reasoning failures* (coherent but wrong).
 
 _Dataset revision: June 2026._
@@ -32,7 +32,7 @@ _Dataset revision: June 2026._
 ### Option A: Google Colab (recommended)
 
 1. Open `colab_notebook.ipynb` in [Colab](https://colab.google.com/).
-2. Set runtime to a GPU with fast bfloat16 — **L4 or A10G** (a T4 works but lacks fast
+2. Set runtime to a GPU with fast bfloat16 - **L4 or A10G** (a T4 works but lacks fast
    bfloat16; see the dtype note below).
 3. Run all cells. The notebook downloads `prompts.jsonl`, runs 36 probes (3 failures +
    1 control per category) with 8-bit quantization, auto-classifies each output, prints
@@ -64,8 +64,8 @@ answers. We record `output_coherent` and `answer_correct` separately and derive
 `failure_mode ∈ {format_failure, reasoning_failure, correct}`. The two imply different
 fixes (instruction/format tuning vs chain-of-thought / domain data).
 
-**dtype matters — bfloat16 is the primary run.** An earlier run used `float16` and
-produced incoherent symbol-salad across all 12 categories (including easy controls) —
+**dtype matters - bfloat16 is the primary run.** An earlier run used `float16` and
+produced incoherent symbol-salad across all 12 categories (including easy controls) -
 the classic signature of float16 numerical overflow on Qwen-class models, not a real
 blind spot. That result confirms the float16 failures are a numerical artifact. The Colab
 notebook therefore runs **bfloat16 only**; the original 12 float16 outputs are preserved

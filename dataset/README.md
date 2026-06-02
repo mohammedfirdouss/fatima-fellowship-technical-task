@@ -22,8 +22,8 @@ A probe set for the failure modes ("blind spots") of the base language model
 
 The dataset contains **84 prompts across 12 reasoning categories**:
 
-- **60 failure probes** — 5 per category — hard items the base model is expected to struggle with.
-- **24 success controls** — 2 per category — easy items in the *same* domain, used as a baseline.
+- **60 failure probes** - 5 per category - hard items the base model is expected to struggle with.
+- **24 success controls** - 2 per category - easy items in the *same* domain, used as a baseline.
 
 The controls are the point: with them we can report a **failure rate** ("X% of hard
 reasoning probes fail vs Y% of easy controls") instead of a curated pile of anecdotes.
@@ -67,7 +67,7 @@ Each `runs.<dtype>` object holds one generation:
 | `failure_mode` | string | `format_failure`, `reasoning_failure`, `correct`, or `pending` |
 
 The `runs` object has slots for both `float16` and `bfloat16`. The 12 original
-prompts carry `runs.float16` results (all incoherent — see the caveat below); the
+prompts carry `runs.float16` results (all incoherent - see the caveat below); the
 remaining records carry `runs.bfloat16` from the primary bfloat16 run.
 
 `dataset/data/prompts.jsonl` holds just the inputs (no outputs) and is the canonical
@@ -79,15 +79,15 @@ record set including both dtype runs and their labels.
 Per a key piece of review feedback, we **do not collapse "wrong" and "incoherent"
 into one bucket**. Every output is coded on two independent axes:
 
-1. **Coherence** — did the model produce legible, on-format English? A base model that
+1. **Coherence** - did the model produce legible, on-format English? A base model that
    emits punctuation/Unicode salad has not even entered the Q&A game.
-2. **Correctness** — *conditional on coherence*, is the answer right?
+2. **Correctness** - *conditional on coherence*, is the answer right?
 
 This yields three outcomes:
 
 | `failure_mode` | Coherent? | Correct? | Interpretation |
 |---|---|---|---|
-| `format_failure` | No | — | Model never produced a usable answer (doesn't follow the QA format) |
+| `format_failure` | No | - | Model never produced a usable answer (doesn't follow the QA format) |
 | `reasoning_failure` | Yes | No | Model understood the task but mis-reasoned |
 | `correct` | Yes | Yes | Success (the baseline we measure controls against) |
 
@@ -97,14 +97,14 @@ chain-of-thought or domain data. Conflating them would point at the wrong fix.
 
 Coherence and correctness are first auto-labelled by simple heuristics (a printable-character
 ratio for coherence; normalized containment of the expected answer for correctness) and
-then **spot-checked by hand** — the heuristics are a screen, not a judge. See `classify()`
+then **spot-checked by hand** - the heuristics are a screen, not a judge. See `classify()`
 in `modal_runner.py` / the notebook.
 
 ## ⚠️ Important Caveat: float16 vs bfloat16
 
 The first batch of captured outputs (the 12 records currently carrying a `notes` field,
 generated under commit `dc58516` which set `dtype=float16`) are **incoherent symbol-salad
-across every category** — including the controls and even items the model clearly "knows".
+across every category** - including the controls and even items the model clearly "knows".
 One probe (`logic_f1`) even begins with the correct token "No," before collapsing into noise.
 
 Uniform, content-independent garbage like this is the classic signature of **float16
@@ -175,10 +175,10 @@ temporal_arithmetic, probabilistic_reasoning, multi_hop_ordering, formal_logic.
 The model needs training examples that demonstrate **step-by-step intermediate
 reasoning** rather than jumping to a final answer. High-quality datasets:
 
-- **OpenMathInstruct-2** — math word problems with detailed solutions
-- **NuminaMath-CoT** — competition mathematics with chain-of-thought
-- **LogiQA / ReClor** — formal logical reasoning
-- **ProntoQA** — synthetic proof-of-concept logical entailment chains
+- **OpenMathInstruct-2** - math word problems with detailed solutions
+- **NuminaMath-CoT** - competition mathematics with chain-of-thought
+- **LogiQA / ReClor** - formal logical reasoning
+- **ProntoQA** - synthetic proof-of-concept logical entailment chains
 - Synthetic step-by-step reasoning traces distilled from a capable teacher model
 
 ### 2. Factual Correction / Misconception Debunking Data
@@ -201,7 +201,7 @@ Tokenization causes the model to "see" words as chunks rather than characters.
 Fine-tuning on explicit character-level and entity-level tasks can partially mitigate this:
 
 - Synthetic character-counting/spelling/reversal examples across diverse vocabularies
-- **Winogrande** — large-scale Winograd schemas for coreference
+- **Winogrande** - large-scale Winograd schemas for coreference
 
 ### 4. Commonsense Physics
 
@@ -227,12 +227,12 @@ distillation from a larger teacher has been particularly effective for 1–7B mo
 
 ## How to Assemble Such a Dataset
 
-1. **Existing benchmarks** — reformat LogiQA, Winogrande, PIQA, OpenMathInstruct, NuminaMath.
-2. **Synthetic generation** — teacher-model step-by-step traces, filtered by correctness.
-3. **Myth-correction scraping** — Snopes / Wikipedia misconceptions → (claim, correction, source) triples.
-4. **Programmatic generation** — scripts emit unlimited character-counting, modular-arithmetic,
+1. **Existing benchmarks** - reformat LogiQA, Winogrande, PIQA, OpenMathInstruct, NuminaMath.
+2. **Synthetic generation** - teacher-model step-by-step traces, filtered by correctness.
+3. **Myth-correction scraping** - Snopes / Wikipedia misconceptions → (claim, correction, source) triples.
+4. **Programmatic generation** - scripts emit unlimited character-counting, modular-arithmetic,
    and transitive-ordering examples with guaranteed-correct labels.
-5. **Human annotation** — a small annotator pool reviewing synthetic drafts for the subtler
+5. **Human annotation** - a small annotator pool reviewing synthetic drafts for the subtler
    commonsense-physics cases.
 
 ## Reproducing
