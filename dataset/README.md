@@ -114,9 +114,9 @@ stable.
 
 **Therefore those 12 `format_failure` labels are confounded and should be treated as
 preliminary.** The float16 results are preserved in `runs.float16` for reference. The
-primary analysis uses **bfloat16**, which has the exponent range to stay stable through
-Qwen3.5's attention and MoE layers. The Colab notebook runs bfloat16 only; the Modal
-runner still supports both dtypes for completeness.
+primary analysis uses **8-bit quantization** (`bitsandbytes`, int8 weights / bfloat16
+activations), which keeps the model fully on GPU on a T4. The Modal runner still
+supports full bfloat16 / float16 for completeness.
 
 ## Results
 
