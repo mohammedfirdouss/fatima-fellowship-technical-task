@@ -114,9 +114,9 @@ stable.
 
 **Therefore those 12 `format_failure` labels are confounded and should be treated as
 preliminary.** The float16 results are preserved in `runs.float16` for reference. The
-primary analysis uses **8-bit quantization** (`bitsandbytes`, int8 weights / bfloat16
-activations), which keeps the model fully on GPU on a T4. The Modal runner still
-supports full bfloat16 / float16 for completeness.
+primary analysis uses **bfloat16**. The Colab notebook runs 12 prompts (1 failure per
+category) for speed on a T4; the full 84-prompt set is in `prompts.jsonl`. The Modal
+runner supports both bfloat16 and float16 for completeness.
 
 ## Results
 
