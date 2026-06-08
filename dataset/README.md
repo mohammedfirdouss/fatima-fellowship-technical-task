@@ -120,22 +120,22 @@ runner supports both bfloat16 and float16 for completeness.
 
 ## Results
 
-> Populated after running the repo notebook / Modal runner, which run both dtypes over
-> all 84 prompts and print exactly this breakdown. Numbers are placeholders pending that
-> run. Currently only the original 12 `runs.float16` cells are filled (and are all
-> incoherent); everything else is `pending`.
-
-**Per-dtype failure/coherence rates:**
+**Per-dtype failure/coherence rates (1 failure probe per category, n=12):**
 
 | dtype | group | n | coherent | correct | format_failure | reasoning_failure |
 |---|---|---|---|---|---|---|
-| bfloat16 | failure probes | 60 | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| bfloat16 | controls | 24 | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| float16 (reference) | original 12 probes | 12 | 0/12 (0%) | 0/12 (0%) | 12/12 | 0/12 |
+| bfloat16 | failure probes (1 per category) | 12 | 12/12 (100%) | 7/12 (58%) | 0/12 (0%) | 5/12 (42%) |
+| bfloat16 | controls | - | not run | not run | - | - |
+| float16 (reference) | original 12 probes | 12 | 0/12 (0%) | 0/12 (0%) | 12/12 (100%) | 0/12 (0%) |
 
-The headline framing: *"On easy in-domain controls the model answers correctly N% of
-the time; on the matched hard probes the correct rate drops to M%, with the remaining
-failures splitting P% format / Q% reasoning."*
+**Key findings:**
+
+- **Zero format failures in bfloat16.** All 12 outputs were coherent and on-format, confirming that the float16 symbol-salad was a numerical artifact, not a model capability issue.
+- **58% correct on hard probes.** The model got arithmetic, cognitive reflection, probabilistic reasoning, temporal arithmetic, and one linguistic illusion probe wrong - all reasoning failures (coherent but wrong), not format failures.
+- **Three outputs used `<think>` tokens** (multi-hop ordering, linguistic illusion, Winograd schema), suggesting the base model generates reasoning traces. The 30-token limit cut these off before a final answer on ling_f1.
+- **One auto-label corrected:** physics_f1 was initially marked `reasoning_failure` because the model answered "Zero" (word) while expected was "0" (digit); manually corrected to `correct`.
+
+The full 84-prompt set (including controls) is in `prompts.jsonl` for a complete failure-rate comparison.
 
 ## Failure Categories (5 probes + 2 controls each)
 
