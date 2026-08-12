@@ -19,6 +19,17 @@ Qwen-class models rather than a genuine reasoning failure. bfloat16 has the wide
 dynamic range needed for stable generation. If your GPU cannot run bfloat16
 efficiently (e.g. a T4), prefer an L4/A10G, or test float16 explicitly and treat
 incoherent output as a possible numerical artifact.
+
+Note on the harness (fixed after review): the first captured pass used a bare
+"Q: ... A:" continuation with no few-shot anchoring, a repetition_penalty on a base
+model, no stop sequence, and only 12 prompts with zero controls run. All four are
+confounds - an unanchored base model can wander off the QA format, a repetition
+penalty distorts digit/token generation for arithmetic-style answers, and without a
+stop sequence a coherent answer can run on into a fabricated next turn. This runner
+now few-shot anchors every prompt, drops the repetition penalty, stops generation at
+the next "\nQ:", and (via run_probes) always covers both failure probes and controls,
+plus a same-prompt run of the instruction-tuned sibling `Qwen/Qwen3.5-4B` as a
+baseline for comparison.
 """
 
 import json
@@ -26,9 +37,7 @@ import re
 
 import modal
 
-# ---------------------------------------------------------------------------
 # Image: Python environment with all dependencies
-# ---------------------------------------------------------------------------
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install(
@@ -47,11 +56,23 @@ image = (
 app = modal.App("qwen35-blind-spots", image=image)
 
 MODEL_NAME = "Qwen/Qwen3.5-4B-Base"
+# Instruction-tuned sibling of the base model, used as a baseline: it shares the
+# architecture/training data lineage but has post-training, so it tells us how much
+# of the base model's failure rate is "capability gap" vs "never learned to answer".
+BASELINE_MODEL = "Qwen/Qwen3.5-4B"
 PROMPTS_PATH = "/root/prompts.jsonl"
 
 # We run every prompt under BOTH dtypes and keep both, for an explicit comparison:
 # float16 is the suspect run (numerical-overflow garbage); bfloat16 is the clean run.
 DTYPES = ["float16", "bfloat16"]
+
+# Two generic exemplars (unrelated to any probe category) so the base model is
+# anchored into the "Q: ... A: <short answer>" continuation pattern instead of
+# treating "Q: ... A:" as arbitrary text to riff on.
+FEW_SHOT_PREFIX = (
+    "Q: What is the capital of Japan?\nA: Tokyo\n\n"
+    "Q: What color is the sky on a clear day?\nA: Blue\n\n"
+)
 
 # Cache the model weights in a Modal Volume so they only download once
 volume = modal.Volume.from_name("hf-model-cache", create_if_missing=True)
@@ -133,14 +154,48 @@ def run_probes() -> list[dict]:
     import gc
 
     import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoModelForCausalLM, AutoTokenizer, StoppingCriteria, StoppingCriteriaList
+
+    class StopOnSubstring(StoppingCriteria):
+        """Stop as soon as decoded new text contains `stop_str` (e.g. the model
+        running on into a fabricated next "Q:" turn)."""
+
+        def __init__(self, tokenizer, stop_str: str, prompt_len: int):
+            self.tokenizer = tokenizer
+            self.stop_str = stop_str
+            self.prompt_len = prompt_len
+
+        def __call__(self, input_ids, scores, **kwargs) -> bool:
+            text = self.tokenizer.decode(input_ids[0][self.prompt_len:], skip_special_tokens=True)
+            return self.stop_str in text
 
     test_cases = load_prompts(PROMPTS_PATH)
     print(f"Loaded {len(test_cases)} prompts from {PROMPTS_PATH}")
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, cache_dir=CACHE_DIR)
     # One record per prompt, accumulating a run under each dtype.
-    records = {tc["id"]: {**tc, "runs": {}} for tc in test_cases}
+    records = {tc["id"]: {**tc, "runs": {}, "baseline": None} for tc in test_cases}
+
+    def make_generate(model, tok):
+        def generate(prompt: str, max_new_tokens: int = 60) -> str:
+            full_prompt = FEW_SHOT_PREFIX + prompt
+            inputs = tok(full_prompt, return_tensors="pt").to(model.device)
+            prompt_len = inputs["input_ids"].shape[1]
+            stopping = StoppingCriteriaList([StopOnSubstring(tok, "\nQ:", prompt_len)])
+            with torch.no_grad():
+                output_ids = model.generate(
+                    **inputs,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=False,
+                    pad_token_id=tok.eos_token_id,
+                    stopping_criteria=stopping,
+                )
+            new_tokens = output_ids[0][prompt_len:]
+            text = tok.decode(new_tokens, skip_special_tokens=True).strip()
+            # Belt-and-suspenders: trim any run-on past the stopping criteria's check point.
+            return text.split("\nQ:")[0].strip()
+
+        return generate
 
     for dtype_name in DTYPES:
         print(f"\n{'#' * 60}\n# Loading {MODEL_NAME} in {dtype_name}\n{'#' * 60}")
@@ -151,19 +206,7 @@ def run_probes() -> list[dict]:
             cache_dir=CACHE_DIR,
         )
         model.eval()
-
-        def generate(prompt: str, max_new_tokens: int = 80) -> str:
-            inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-            with torch.no_grad():
-                output_ids = model.generate(
-                    **inputs,
-                    max_new_tokens=max_new_tokens,
-                    do_sample=False,
-                    repetition_penalty=1.1,
-                    pad_token_id=tokenizer.eos_token_id,
-                )
-            new_tokens = output_ids[0][inputs["input_ids"].shape[1]:]
-            return tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+        generate = make_generate(model, tokenizer)
 
         for tc in test_cases:
             output = generate(tc["prompt"])
@@ -176,6 +219,51 @@ def run_probes() -> list[dict]:
         del model
         gc.collect()
         torch.cuda.empty_cache()
+
+    # --- Instruction-tuned baseline (bfloat16 only) -------------------------------
+    # Not a dtype variant of the base model - a different (post-trained) checkpoint,
+    # run via its chat template, so results live under a separate `baseline` key
+    # rather than inside `runs`.
+    print(f"\n{'#' * 60}\n# Loading baseline {BASELINE_MODEL} in bfloat16\n{'#' * 60}")
+    baseline_tokenizer = AutoTokenizer.from_pretrained(BASELINE_MODEL, cache_dir=CACHE_DIR)
+    baseline_model = AutoModelForCausalLM.from_pretrained(
+        BASELINE_MODEL,
+        dtype=torch.bfloat16,
+        device_map="auto",
+        cache_dir=CACHE_DIR,
+    )
+    baseline_model.eval()
+
+    def generate_baseline(prompt: str, max_new_tokens: int = 200) -> str:
+        messages = [{"role": "user", "content": prompt.removeprefix("Q: ").removesuffix("\nA:")}]
+        inputs = baseline_tokenizer.apply_chat_template(
+            messages,
+            add_generation_prompt=True,
+            enable_thinking=False,
+            return_tensors="pt",
+            return_dict=True,
+        ).to(baseline_model.device)
+        prompt_len = inputs["input_ids"].shape[1]
+        with torch.no_grad():
+            output_ids = baseline_model.generate(
+                **inputs,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+                pad_token_id=baseline_tokenizer.eos_token_id,
+            )
+        new_tokens = output_ids[0][prompt_len:]
+        return baseline_tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+
+    for tc in test_cases:
+        output = generate_baseline(tc["prompt"])
+        labels = classify(output, tc["expected_output"])
+        records[tc["id"]]["baseline"] = {"model": BASELINE_MODEL, "model_output": output, **labels}
+        print(f"[baseline] [{tc['id']}] {tc['probe_type']:7s} -> {labels['failure_mode']:18s} "
+              f"exp={tc['expected_output']!r}")
+
+    del baseline_model
+    gc.collect()
+    torch.cuda.empty_cache()
 
     volume.commit()
     return [records[tc["id"]] for tc in test_cases]
@@ -214,6 +302,20 @@ def summarize(results: list[dict]) -> None:
 
     print("\nRead: if float16 is incoherent even on the easy CONTROLS while bfloat16 is")
     print("coherent on them, the float16 'failures' are a numerical artifact, not a blind spot.")
+
+    def baseline_mode(r):
+        return r["baseline"]["failure_mode"]
+
+    def baseline_coherent(r):
+        return r["baseline"]["output_coherent"]
+
+    print(f"\n--- baseline ({BASELINE_MODEL}, instruction-tuned, bfloat16) ---")
+    print(f"  failure probes  coherent          : {rate(failures, baseline_coherent)}")
+    print(f"  failure probes  correct           : {rate(failures, lambda r: baseline_mode(r) == 'correct')}")
+    print(f"  controls        coherent          : {rate(controls, baseline_coherent)}")
+    print(f"  controls        correct           : {rate(controls, lambda r: baseline_mode(r) == 'correct')}")
+    print("\nRead: the gap between the base model's correct-rate and this baseline's is an")
+    print("upper bound on how much post-training (not raw capability) explains the failures.")
 
 
 @app.local_entrypoint()

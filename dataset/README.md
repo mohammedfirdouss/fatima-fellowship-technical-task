@@ -55,6 +55,7 @@ _Model released February 2026 · dataset revision June 2026._
 | `expected_output` | string | Correct answer |
 | `explanation` | string | Why this probe is hard / what correct reasoning requires |
 | `runs` | object | Per-dtype results: `runs.float16` and `runs.bfloat16` (see below) |
+| `baseline` | object \| null | Same-prompt result from the instruction-tuned sibling `Qwen/Qwen3.5-4B` (bfloat16), for comparison. `null` until the baseline pass has been run. |
 | `notes` | string | Optional caveats (e.g. dtype provenance) |
 
 Each `runs.<dtype>` object holds one generation:
@@ -100,6 +101,27 @@ ratio for coherence; normalized containment of the expected answer for correctne
 then **spot-checked by hand** - the heuristics are a screen, not a judge. See `classify()`
 in `modal_runner.py` / the notebook.
 
+## Generation Harness
+
+Every generation is:
+
+- **Greedy** (`do_sample=False`) for reproducibility.
+- **Few-shot anchored** with two generic, off-domain Q/A exemplars, so a base model
+  (which has no instruction-following prior) is pulled into the "Q: ... A: <answer>"
+  continuation pattern instead of treating the prompt as arbitrary text to riff on.
+- **Not repetition-penalized.** An earlier pass applied `repetition_penalty=1.1`, which
+  distorts token/digit generation on a base model doing arithmetic-style answers -
+  a harness confound, not a model property. Current runs use the raw greedy distribution.
+- **Stopped at a real stop sequence** (`"\nQ:"`), enforced both via a `StoppingCriteria`
+  during generation and as a post-hoc trim, so a coherent answer can't run on into a
+  fabricated next turn and get misclassified.
+
+Every prompt is also run through **`Qwen/Qwen3.5-4B`**, the instruction-tuned sibling of
+the base model, via its chat template, as a **baseline**. This is not a substitute for the
+per-category controls (which test easy items in-domain) - it answers a different question:
+how much of the base model's failure rate reflects a genuine capability gap vs something
+post-training already closes.
+
 ## ⚠️ Important Caveat: float16 vs bfloat16
 
 The first batch of captured outputs (the 12 records currently carrying a `notes` field,
@@ -114,11 +136,12 @@ stable.
 
 **Therefore those 12 `format_failure` labels are confounded and should be treated as
 preliminary.** The float16 results are preserved in `runs.float16` for reference. The
-primary analysis uses **bfloat16**. The Colab notebook runs 12 prompts (1 failure per
-category) for speed on a T4; the full 84-prompt set is in `prompts.jsonl`. The Modal
-runner supports both bfloat16 and float16 for completeness.
+primary analysis uses **bfloat16**. The Modal runner supports both bfloat16 and float16
+for completeness.
 
 ## Results
+
+### Pass 1 (preliminary - measured the harness, not just the model)
 
 **Per-dtype failure/coherence rates (1 failure probe per category, n=12):**
 
@@ -128,12 +151,29 @@ runner supports both bfloat16 and float16 for completeness.
 | bfloat16 | controls | - | not run | not run | - | - |
 | float16 (reference) | original 12 probes | 12 | 0/12 (0%) | 0/12 (0%) | 12/12 (100%) | 0/12 (0%) |
 
-**Key findings:**
+**Key findings from Pass 1:**
 
 - **Zero format failures in bfloat16.** All 12 outputs were coherent and on-format, confirming that the float16 symbol-salad was a numerical artifact, not a model capability issue.
 - **58% correct on hard probes.** The model got arithmetic, cognitive reflection, probabilistic reasoning, temporal arithmetic, and one linguistic illusion probe wrong - all reasoning failures (coherent but wrong), not format failures.
 - **Three outputs used `<think>` tokens** (multi-hop ordering, linguistic illusion, Winograd schema), suggesting the base model generates reasoning traces. The 30-token limit cut these off before a final answer on ling_f1.
 - **One auto-label corrected:** physics_f1 was initially marked `reasoning_failure` because the model answered "Zero" (word) while expected was "0" (digit); manually corrected to `correct`.
+
+**Why Pass 1 is not yet a finished experiment, plainly stated:** it ran zero-shot with a
+`repetition_penalty` on a base model, no stop sequence, n=12 with **no controls run** in
+bfloat16, and no baseline. Those are harness confounds - this pass mostly verified that
+the bfloat16 harness itself produces coherent, on-format output, not that the 58%
+correct-rate reflects the model's actual reasoning ceiling. It should not be cited as
+the headline result.
+
+### Pass 2 (harness fixed, re-run pending)
+
+The generation harness has been fixed (see **Generation Harness** above: few-shot
+anchoring, no repetition penalty, a real stop sequence) and the notebook/Modal runner now
+always run controls alongside failure probes plus the `Qwen/Qwen3.5-4B` instruction-tuned
+baseline on the same prompts. **This pass has not been executed yet** - re-run the Colab
+notebook or `modal run modal_runner.py` and replace this section with the resulting
+failure-rate table (including the controls and baseline rows) before treating any
+correct-rate here as a finished result, and before linking/publishing this dataset.
 
 The full 84-prompt set (including controls) is in `prompts.jsonl` for a complete failure-rate comparison.
 
@@ -238,9 +278,12 @@ distillation from a larger teacher has been particularly effective for 1–7B mo
 ## Reproducing
 
 The accompanying repo provides a Colab notebook and a Modal runner. Both read
-`dataset/data/prompts.jsonl` and run all 84 prompts with greedy decoding, auto-classify
-each output, and print the failure-rate summary. The Colab notebook runs **bfloat16
-only**; the Modal runner supports both dtypes.
+`dataset/data/prompts.jsonl`, few-shot anchor and greedy-decode every prompt with a stop
+sequence (no repetition penalty), auto-classify each output, and print the failure-rate
+summary - including a controls comparison and a same-prompt pass of the instruction-tuned
+`Qwen/Qwen3.5-4B` baseline. The Colab notebook runs a 24-prompt subset (1 failure + 1
+control per category) in **bfloat16 only**; the Modal runner covers the full 84-prompt
+set under both dtypes plus the baseline.
 
 ## Citation
 

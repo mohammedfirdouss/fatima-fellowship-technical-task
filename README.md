@@ -35,9 +35,11 @@ _Dataset revision: June 2026._
 1. Open `colab_notebook.ipynb` in [Colab](https://colab.google.com/).
 2. Set runtime to a GPU with fast bfloat16 - **L4 or A10G** (a T4 works but lacks fast
    bfloat16; see the dtype note below).
-3. Run all cells. The notebook downloads `prompts.jsonl`, runs 12 probes (1 failure per
-   category) in bfloat16, auto-classifies each output, prints the summary, and saves
-   `blind_spots_data.jsonl`. The full 84-prompt set is in `dataset/data/prompts.jsonl`.
+3. Run all cells. The notebook downloads `prompts.jsonl`, runs 24 probes (1 failure +
+   1 control per category) in bfloat16, plus the same prompts through the
+   instruction-tuned baseline `Qwen/Qwen3.5-4B`, auto-classifies each output, prints the
+   summary, and saves `blind_spots_data.jsonl`. The full 84-prompt set is in
+   `dataset/data/prompts.jsonl`.
 4. Spot-check the auto labels, then use that file to update `dataset/data/train.jsonl`.
 
 ### Option B: Modal
@@ -57,6 +59,15 @@ Runs the same 84 prompts and prints the same summary; results are saved to
 counting letters in "cat", canonical modus ponens). Comparing the correct-rate on
 controls vs the matched hard probes turns the project from "here are 12 failures" into a
 measured failure rate.
+
+**Generation harness matters as much as the prompts.** An earlier pass ran zero-shot with
+a `repetition_penalty` on a base model, no stop sequence, and no controls or baseline run
+- confounds that can produce "degenerate" or misleading output that has nothing to do with
+the model's actual reasoning. The harness now few-shot anchors every prompt with two
+generic Q/A exemplars, drops the repetition penalty, stops generation at a real stop
+sequence, and runs the instruction-tuned sibling `Qwen/Qwen3.5-4B` as a baseline on the
+same prompts. **Status: the harness has been fixed but not yet re-run** - see the
+Pass 1 / Pass 2 split in `dataset/README.md#results` before citing any correct-rate here.
 
 **Format vs reasoning failure.** A base model can fail two very different ways: by
 emitting incoherent text (it never enters the Q&A frame) or by producing fluent-but-wrong
@@ -87,8 +98,11 @@ fine-tuning recommendations (datasets and sizes) for each root cause.
 ## After Running
 
 1. Spot-check the auto-labels in `blind_spots_data.jsonl`.
-2. Use it to update `dataset/data/train.jsonl` and fill the results table in `dataset/README.md`.
-3. Push to HuggingFace:
+2. Use it to update `dataset/data/train.jsonl` and fill the **Pass 2** results table in
+   `dataset/README.md` (replacing the preliminary Pass 1 table).
+3. Push to HuggingFace **only after Pass 2 is filled in** - the current Pass 1 numbers are
+   harness-limited (n=12, no controls, no baseline) and shouldn't be published as the
+   headline result:
 
 ```python
 from huggingface_hub import HfApi, login
