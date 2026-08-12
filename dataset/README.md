@@ -277,13 +277,16 @@ distillation from a larger teacher has been particularly effective for 1–7B mo
 
 ## Reproducing
 
-The accompanying repo provides a Colab notebook and a Modal runner. Both read
+The accompanying repo provides a Colab notebook, a Modal runner, and an
+[Inspect](https://inspect.aisi.org.uk/) eval (`inspect_eval.py`). All three read
 `dataset/data/prompts.jsonl`, few-shot anchor and greedy-decode every prompt with a stop
-sequence (no repetition penalty), auto-classify each output, and print the failure-rate
+sequence (no repetition penalty), auto-classify each output, and produce the failure-rate
 summary - including a controls comparison and a same-prompt pass of the instruction-tuned
 `Qwen/Qwen3.5-4B` baseline. The Colab notebook runs a 24-prompt subset (1 failure + 1
-control per category) in **bfloat16 only**; the Modal runner covers the full 84-prompt
-set under both dtypes plus the baseline.
+control per category) in **bfloat16 only**; the Modal runner and the Inspect eval cover
+the full 84-prompt set. Inspect additionally produces a standard eval log browsable with
+`inspect view`, and is the recommended path if you want a portable, reviewable run log
+rather than a printed summary.
 
 ## Citation
 

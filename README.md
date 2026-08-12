@@ -20,6 +20,7 @@ _Dataset revision: June 2026._
 .
 ├── colab_notebook.ipynb   # Colab: loads the model and runs all 84 probes
 ├── modal_runner.py        # Alternative: run on Modal cloud GPUs
+├── inspect_eval.py        # Alternative: same probes as a UK AISI Inspect eval
 └── dataset/
     ├── README.md          # HuggingFace dataset card + full analysis
     └── data/
@@ -41,6 +42,9 @@ _Dataset revision: June 2026._
    summary, and saves `blind_spots_data.jsonl`. The full 84-prompt set is in
    `dataset/data/prompts.jsonl`.
 4. Spot-check the auto labels, then use that file to update `dataset/data/train.jsonl`.
+5. (Optional) Section 8 of the notebook installs `inspect-ai` and re-runs the full
+   84-prompt set through `inspect_eval.py` on the same Colab GPU - see Option C below
+   for what that produces.
 
 ### Option B: Modal
 
@@ -52,6 +56,27 @@ modal run modal_runner.py
 
 Runs the same 84 prompts and prints the same summary; results are saved to
 `blind_spots_data.jsonl`.
+
+### Option C: UK AISI Inspect
+
+```bash
+pip install inspect-ai "transformers @ git+https://github.com/huggingface/transformers.git" \
+  torch accelerate
+inspect eval inspect_eval.py@qwen35_blind_spots \
+  --model hf/Qwen/Qwen3.5-4B-Base -M use_chat_template=false -M trust_remote_code=true
+inspect eval inspect_eval.py@qwen35_blind_spots_baseline \
+  --model hf/Qwen/Qwen3.5-4B -M trust_remote_code=true
+inspect view   # browse per-sample transcripts in the log viewer
+```
+
+Same dataset, harness, and scoring logic as the notebook/Modal runner, reimplemented as
+an [Inspect](https://inspect.aisi.org.uk/) `Task`/`Solver`/`Scorer` so it produces a
+standard Inspect eval log instead of a hand-rolled JSONL summary. Runnable standalone
+(above) with a local/cloud GPU, or from the optional Section 8 of the Colab notebook if
+that's your only GPU access. `-M use_chat_template=false` is required for the base-model
+task - Inspect's HF provider
+applies a chat template by default, which would corrupt the plain-completion format this
+project relies on (the base model was never instruction-tuned).
 
 ## Key Design Choices
 
