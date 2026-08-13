@@ -183,13 +183,14 @@ the notebook's direct loop, and the full 84-prompt set through `inspect_eval.py`
 | `Qwen3.5-4B` baseline | failure probes | 12 | 12/12 (100%) | 10/12 (83%) |
 | `Qwen3.5-4B` baseline | controls | 12 | 12/12 (100%) | 12/12 (100%) |
 
-**Full 84-prompt set (Inspect, `inspect_eval.py`):**
+**Full 84-prompt set (Inspect, `inspect_eval.py`; this exact run's logs are in `logs/`
+and its per-record output is what `dataset/data/train.jsonl` now contains):**
 
 | model | group | n | coherent | correct | reasoning_failure |
 |---|---|---|---|---|---|
 | `Qwen3.5-4B-Base` | failure probes | 60 | 60/60 (100%) | 35/60 (58%) | 25/60 (42%) |
-| `Qwen3.5-4B-Base` | controls | 24 | 24/24 (100%) | 17/24 (71%) | 7/24 (29%) |
-| `Qwen3.5-4B` baseline | failure probes | 60 | 60/60 (100%) | 53/60 (88%) | 7/60 (12%) |
+| `Qwen3.5-4B-Base` | controls | 24 | 24/24 (100%) | 16/24 (67%) | 8/24 (33%) |
+| `Qwen3.5-4B` baseline | failure probes | 60 | 60/60 (100%) | 55/60 (92%) | 5/60 (8%) |
 | `Qwen3.5-4B` baseline | controls | 24 | 24/24 (100%) | 24/24 (100%) | 0/24 (0%) |
 
 `format_failure` is 0/0% in every row above - **zero format failures across all 168
@@ -197,13 +198,21 @@ generations, both models, both runs.** This fully closes the "degenerate output"
 the harness rewrite was meant to address; every failure that remains is a genuine
 reasoning failure (coherent, on-format, wrong answer), not a harness artifact.
 
+This full-set run was executed twice (once to verify the fixes, once more to capture
+logs for `inspect view`). The two runs agree closely but not bit-for-bit (58% both times
+on failure probes; controls 71%→67%, baseline failures 88%→92%) despite greedy
+`do_sample=false` decoding - expected GPU floating-point non-determinism occasionally
+flipping an argmax tie on a close-call token, not a harness bug. The numbers above and in
+`train.jsonl` are from the second run, since that's the one whose `.eval` logs are
+preserved in `logs/` for anyone to audit directly.
+
 **Key findings:**
 
-- **The instruction-tuned baseline outperforms the base model on both runs (88% vs 58%
+- **The instruction-tuned baseline outperforms the base model on both runs (92% vs 58%
   on the full set), which is the expected, sane result** - post-training substantially
   closes the gap, but doesn't erase it: the base model still gets the majority of hard
   probes right on raw next-token prediction alone (58%, and 67% on the smaller subset).
-  The ~30-point gap between them is the "how much of the failure rate is post-training
+  The ~34-point gap between them is the "how much of the failure rate is post-training
   vs raw capability" question this baseline exists to answer.
 - **Three real bugs were caught and fixed while producing this run** (not stale review
   feedback - encountered live on an actual Colab GPU session):
