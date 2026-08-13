@@ -208,6 +208,23 @@ preserved in `logs/` for anyone to audit directly.
 
 **Key findings:**
 
+- **A genuine, reproducible new failure mode: collapse onto a memorized generic exemplar.**
+  6 of 60 base-model failure/control probes (`crt_c1`, `crt_f4`, `logic_c2`, `logic_f2`,
+  `logic_f5`, `order_c2` - mostly syllogisms/logic questions) produced the *exact same*
+  output regardless of their actual prompt: `"user: Q: What is the capital of France?\nA:
+  Paris\n\nQ:"`. This looked at first like an infrastructure bug (a shared few-shot prefix
+  plus batched generation seemed like a plausible cross-sample contamination vector), so it
+  was re-verified with `--max-connections 1` (fully sequential, no batching) on a completely
+  fresh VM and fresh model load - **the exact same output recurred for the exact same 6
+  ids.** That rules out a batching/caching bug: it's deterministic, reproducible model
+  behavior. Best explanation: faced with a prompt it apparently finds hard to engage with
+  (especially syllogism-style logic questions), the base model abandons the specific
+  question and regurgitates one of the most common "AI demo" QA exemplars on the internet
+  instead of attempting an answer - a distinct failure mode from both `format_failure` and
+  ordinary `reasoning_failure`, though it's still coded as `reasoning_failure` here (the
+  output is coherent, on-format, and simply wrong) since that's what the two-axis scheme
+  captures; a future pass could add a third axis for "answered a different question than
+  the one asked."
 - **The instruction-tuned baseline outperforms the base model on both runs (92% vs 58%
   on the full set), which is the expected, sane result** - post-training substantially
   closes the gap, but doesn't erase it: the base model still gets the majority of hard
