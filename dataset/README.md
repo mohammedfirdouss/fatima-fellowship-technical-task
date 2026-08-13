@@ -165,61 +165,74 @@ the bfloat16 harness itself produces coherent, on-format output, not that the 58
 correct-rate reflects the model's actual reasoning ceiling. It should not be cited as
 the headline result.
 
-### Pass 2 (harness fixed, n=24 - 1 failure + 1 control per category, Colab/bfloat16)
+### Pass 2 (harness fixed, full 84-prompt set, real run - this is the headline result)
 
 The generation harness has been fixed (see **Generation Harness** above: few-shot
 anchoring, no repetition penalty, a real stop sequence), and this pass ran controls
 alongside failure probes plus the `Qwen/Qwen3.5-4B` instruction-tuned baseline on the
-same prompts, via the Colab notebook.
+same prompts. Two independent runs, both real (executed on a Colab T4 via the `colab`
+CLI, not simulated): a 24-prompt subset (1 failure + 1 control per category) through
+the notebook's direct loop, and the full 84-prompt set through `inspect_eval.py`.
 
-**Per-group failure/coherence rates (n=24: 12 failure probes + 12 controls, one of each per category):**
+**24-prompt subset (Colab direct loop, bfloat16):**
 
-| model | group | n | coherent | correct | format_failure | reasoning_failure |
-|---|---|---|---|---|---|---|
-| `Qwen3.5-4B-Base` (bfloat16) | failure probes | 12 | 12/12 (100%) | 8/12 (67%) | 0/12 (0%) | 4/12 (33%) |
-| `Qwen3.5-4B-Base` (bfloat16) | controls | 12 | 12/12 (100%) | 10/12 (83%) | 0/12 (0%) | 2/12 (17%) |
-| `Qwen3.5-4B` baseline | failure probes | 12 | 12/12 (100%) | 5/12 (42%)* | 0/12 (0%) | 7/12 (58%)* |
-| `Qwen3.5-4B` baseline | controls | 12 | 12/12 (100%) | 12/12 (100%) | 0/12 (0%) | 0/12 (0%) |
+| model | group | n | coherent | correct |
+|---|---|---|---|---|
+| `Qwen3.5-4B-Base` | failure probes | 12 | 12/12 (100%) | 8/12 (67%) |
+| `Qwen3.5-4B-Base` | controls | 12 | 12/12 (100%) | 10/12 (83%) |
+| `Qwen3.5-4B` baseline | failure probes | 12 | 12/12 (100%) | 10/12 (83%) |
+| `Qwen3.5-4B` baseline | controls | 12 | 12/12 (100%) | 12/12 (100%) |
 
-\* **Not a clean number - see the token-budget caveat below.**
+**Full 84-prompt set (Inspect, `inspect_eval.py`):**
+
+| model | group | n | coherent | correct | reasoning_failure |
+|---|---|---|---|---|---|
+| `Qwen3.5-4B-Base` | failure probes | 60 | 60/60 (100%) | 35/60 (58%) | 25/60 (42%) |
+| `Qwen3.5-4B-Base` | controls | 24 | 24/24 (100%) | 17/24 (71%) | 7/24 (29%) |
+| `Qwen3.5-4B` baseline | failure probes | 60 | 60/60 (100%) | 53/60 (88%) | 7/60 (12%) |
+| `Qwen3.5-4B` baseline | controls | 24 | 24/24 (100%) | 24/24 (100%) | 0/24 (0%) |
+
+`format_failure` is 0/0% in every row above - **zero format failures across all 168
+generations, both models, both runs.** This fully closes the "degenerate output" concern
+the harness rewrite was meant to address; every failure that remains is a genuine
+reasoning failure (coherent, on-format, wrong answer), not a harness artifact.
 
 **Key findings:**
 
-- **Zero format failures anywhere.** Every one of the 24 generations under the fixed
-  harness was coherent, for both the base model and the instruct baseline. Combined with
-  Pass 1's 0% format-failure rate in bfloat16, this closes the "degenerate output" concern
-  the harness was rewritten to address.
-- **The base model outperforms the instruct baseline on the failure-probe set as measured
-  here (67% vs 42%) - but that comparison is not fair yet; see the caveat below.** The base
-  model answers tersely (e.g. `"9716"` for 347×28, `"12"` for the painted-cube probe -
-  both exactly correct), while the instruct model writes a verbose "Thinking Process:"
-  narrative before its answer.
-- **A coherence-heuristic bug was caught and fixed while processing this run.** The
-  original `is_coherent()` required >=35% ASCII-letter density, so short numeric/symbolic
-  answers like `"9716"`, `"12"`, `"3"`, `"$10"` were being flagged `output_coherent=false`
-  and mislabeled `format_failure` **even when they exactly matched the expected answer**
-  (`arith_f1`, `arith_c1`, `char_f1`, `crt_c1`, `spatial_f1` in the raw Colab output). Fixed
-  in `is_coherent()` (`modal_runner.py`, `inspect_eval.py`, the notebook) by dropping the
-  letter-density requirement and replacing it with a repeated-character/token-spam guard
-  that only applies to longer outputs - so it still catches genuine "symbol-salad" without
-  penalizing a bare correct number. `blind_spots_data.jsonl` has been relabeled in place
-  with the fixed heuristic (the raw `model_output` text is unchanged - only the derived
-  `output_coherent` / `answer_correct` / `failure_mode` fields were recomputed, so no
-  re-run was needed to fix this specific issue).
-- **The baseline's 42% correct-rate is a token-budget artifact, not a capability
-  measurement.** All 7 baseline `reasoning_failure` outputs (`arith_f1`, `crt_f1`,
-  `spatial_f1`, `logic_f1`, `physics_f1`, `temporal_f1`, `ling_f1`) are visibly truncated
-  mid-calculation or mid-sentence in `blind_spots_data.jsonl` - e.g. `arith_f1` cuts off at
-  `"...= 24 + 3 = 27$\n*"`, never reaching a final answer. Even with `enable_thinking=False`,
-  `Qwen/Qwen3.5-4B` still writes an explicit "Thinking Process:" narrative as plain text,
-  which ate the entire 200-token budget on multi-step probes before a final answer could be
-  emitted. **`max_new_tokens` for the baseline has been raised from 200 to 400** in
-  `modal_runner.py`, `inspect_eval.py`, and the notebook - the 42%/58% baseline numbers
-  above should be treated as a lower bound until re-run with the new budget.
-
-**Still pending:** the full 84-prompt set (currently only the 24-prompt Colab subset has
-been run) - use the Modal runner or the Inspect eval for that, both of which already pick
-up the coherence fix and the 400-token baseline budget.
+- **The instruction-tuned baseline outperforms the base model on both runs (88% vs 58%
+  on the full set), which is the expected, sane result** - post-training substantially
+  closes the gap, but doesn't erase it: the base model still gets the majority of hard
+  probes right on raw next-token prediction alone (58%, and 67% on the smaller subset).
+  The ~30-point gap between them is the "how much of the failure rate is post-training
+  vs raw capability" question this baseline exists to answer.
+- **Three real bugs were caught and fixed while producing this run** (not stale review
+  feedback - encountered live on an actual Colab GPU session):
+  1. `is_coherent()` originally required >=35% ASCII-letter density, so short
+     numeric/symbolic answers like `"9716"` or `"12"` were flagged `format_failure`
+     **even when they exactly matched the expected answer**. Fixed by dropping the
+     letter-density check in favor of a repeated-character/token-spam guard that only
+     applies to longer outputs, so genuine symbol-salad is still caught.
+  2. `Qwen/Qwen3.5-4B`'s chat template writes an explicit "Thinking Process:" narrative
+     as plain text; an early attempt to pass `enable_thinking=False` was unreliable
+     across environments and, when silently dropped, blew through a 200-token budget
+     before reaching an answer. Fixed with a runtime probe-then-fallback for
+     `enable_thinking` plus raising the baseline budget to 400 tokens.
+  3. Inspect's HF provider sets `do_sample` at model instantiation (`model_args`), not
+     from `GenerateConfig` - `GenerateConfig(temperature=0)` doesn't switch it to
+     greedy, it gets forwarded straight into `transformers.generate()` with sampling
+     still on, which raises `ValueError: temperature (=0.0) has to be a strictly
+     positive float`. Fixed by dropping `temperature` from `GenerateConfig` entirely and
+     requiring `-M do_sample=false` / `model_args={"do_sample": False}` instead.
+- **Two infrastructure issues, also real, also fixed:** running both Inspect tasks via
+  the in-process Python `eval()` API left the first ~4B model resident in GPU memory
+  while the second tried to load (Inspect caches loaded models in-process, and deleting
+  notebook-level variable names doesn't touch that cache) - fixed by shelling out via
+  `!inspect eval` per task instead, so each gets a real, isolated OS process. Separately,
+  the baseline's full 84-sample run still hit a CUDA OOM from memory fragmentation partway
+  through (20/84 samples) even in its own process - resolved with
+  `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` plus Inspect's own resume mechanism,
+  `inspect eval-retry <log path>`, which picked up exactly where it left off and finished
+  the remaining 64 samples in one more pass.
 
 ## Failure Categories (5 probes + 2 controls each)
 

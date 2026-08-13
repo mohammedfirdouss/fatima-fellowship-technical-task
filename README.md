@@ -62,10 +62,11 @@ Runs the same 84 prompts and prints the same summary; results are saved to
 ```bash
 pip install inspect-ai "transformers @ git+https://github.com/huggingface/transformers.git" \
   torch accelerate
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True   # see OOM note below
 inspect eval inspect_eval.py@qwen35_blind_spots \
-  --model hf/Qwen/Qwen3.5-4B-Base -M use_chat_template=false -M trust_remote_code=true
+  --model hf/Qwen/Qwen3.5-4B-Base -M use_chat_template=false -M trust_remote_code=true -M do_sample=false
 inspect eval inspect_eval.py@qwen35_blind_spots_baseline \
-  --model hf/Qwen/Qwen3.5-4B -M trust_remote_code=true
+  --model hf/Qwen/Qwen3.5-4B -M trust_remote_code=true -M do_sample=false
 inspect view   # browse per-sample transcripts in the log viewer
 ```
 
@@ -73,10 +74,24 @@ Same dataset, harness, and scoring logic as the notebook/Modal runner, reimpleme
 an [Inspect](https://inspect.aisi.org.uk/) `Task`/`Solver`/`Scorer` so it produces a
 standard Inspect eval log instead of a hand-rolled JSONL summary. Runnable standalone
 (above) with a local/cloud GPU, or from the optional Section 8 of the Colab notebook if
-that's your only GPU access. `-M use_chat_template=false` is required for the base-model
-task - Inspect's HF provider
-applies a chat template by default, which would corrupt the plain-completion format this
-project relies on (the base model was never instruction-tuned).
+that's your only GPU access - both paths have now actually produced the full 84-prompt
+results in `dataset/README.md#results`, not just been written and left untested.
+
+Two things that are load-bearing, both found on a real run, not just in docs:
+
+- `-M use_chat_template=false` for the base-model task - Inspect's HF provider applies a
+  chat template by default, which would corrupt the plain-completion format this project
+  relies on (the base model was never instruction-tuned).
+- `-M do_sample=false` for **both** tasks - Inspect's HF provider decides `do_sample` at
+  model instantiation from `model_args`, not from `GenerateConfig`, so it defaults to
+  `True` regardless of temperature. Without this flag, generation crashes with
+  `ValueError: temperature (=0.0) has to be a strictly positive float`.
+
+If the baseline task OOMs partway through on a smaller GPU (a T4 has just enough headroom
+for one ~4B model's generation buffers, and can fragment over 60-90 samples), the
+`export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` above mitigates it, and if it
+still gets interrupted, Inspect's own recovery command resumes from exactly where it left
+off rather than restarting: `inspect eval-retry logs/<the-interrupted-run>.eval`.
 
 ## Key Design Choices
 
@@ -91,14 +106,15 @@ a `repetition_penalty` on a base model, no stop sequence, and no controls or bas
 the model's actual reasoning. The harness now few-shot anchors every prompt with two
 generic Q/A exemplars, drops the repetition penalty, stops generation at a real stop
 sequence, and runs the instruction-tuned sibling `Qwen/Qwen3.5-4B` as a baseline on the
-same prompts. **Status: the fixed harness has been run on a 24-prompt subset (Colab)** -
-zero format failures on either model, but re-running it also caught two more bugs: a
-coherence-heuristic bug that mislabeled short-but-correct numeric answers (e.g. `"9716"`,
-`"12"`) as format failures, now fixed and the existing data relabeled in place; and a
-200-token baseline budget that was truncating the instruct model's verbose reasoning
-before it reached an answer, now raised to 400. The full 84-prompt run (Modal or Inspect)
-is still pending. See the Pass 1 / Pass 2 split in `dataset/README.md#results` before
-citing any correct-rate here.
+same prompts. **Status: done.** The full 84-prompt set has been run for both models via
+`inspect_eval.py` on a real Colab T4 GPU session, plus a 24-prompt subset via the
+notebook's direct loop - zero format failures across all 168 generations, both models,
+both runs. Getting there surfaced (and fixed) five real bugs along the way - a
+coherence-heuristic false negative on short numeric answers, an unreliable
+`enable_thinking` flag, an Inspect `GenerateConfig(temperature=0)` crash, an in-process
+GPU-memory collision between two sequential Inspect tasks, and a mid-run CUDA
+fragmentation OOM - all documented with root causes in `dataset/README.md#results`,
+which now has the real headline numbers.
 
 **Format vs reasoning failure.** A base model can fail two very different ways: by
 emitting incoherent text (it never enters the Q&A frame) or by producing fluent-but-wrong
@@ -128,13 +144,12 @@ fine-tuning recommendations (datasets and sizes) for each root cause.
 
 ## After Running
 
-1. Spot-check the auto-labels in `blind_spots_data.jsonl`.
-2. Use it to update `dataset/data/train.jsonl` and fill the **Pass 2** results table in
-   `dataset/README.md` (replacing the preliminary Pass 1 table).
-3. Push to HuggingFace **only after the full 84-prompt Pass 2 run** (Modal or Inspect) -
-   the 24-prompt Colab subset in `dataset/README.md#results` is real data from the fixed
-   harness, but it's still a subset, and the original Pass 1 numbers (n=12, no controls,
-   no baseline) shouldn't be published as the headline result:
+1. Spot-check the auto-labels in `blind_spots_data.jsonl` (the current file is real
+   output from the full-84-prompt-set Pass 2 run - see `dataset/README.md#results`).
+2. Use it to update `dataset/data/train.jsonl` with the Pass 2 records (the Pass 2
+   results table in `dataset/README.md` is already filled in from the real run; the
+   original Pass 1 numbers, n=12/no controls/no baseline, are kept for reference only).
+3. Push to HuggingFace **only after that spot-check and `train.jsonl` update**:
 
 ```python
 from huggingface_hub import HfApi, login

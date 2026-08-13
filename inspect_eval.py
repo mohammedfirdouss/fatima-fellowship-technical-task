@@ -12,19 +12,25 @@ Install:
 Run (base model - MUST disable the chat template, it's not instruction-tuned):
     inspect eval inspect_eval.py@qwen35_blind_spots \
         --model hf/Qwen/Qwen3.5-4B-Base \
-        -M use_chat_template=false -M trust_remote_code=true
+        -M use_chat_template=false -M trust_remote_code=true -M do_sample=false
 
 Run (instruction-tuned baseline - chat template stays on, it's the default):
     inspect eval inspect_eval.py@qwen35_blind_spots_baseline \
-        --model hf/Qwen/Qwen3.5-4B -M trust_remote_code=true
+        --model hf/Qwen/Qwen3.5-4B -M trust_remote_code=true -M do_sample=false
 
 View results:
     inspect view
 
-Open question to verify in a smoke run: the standard GenerateConfig has no
-`repetition_penalty` field (confirmed against the Inspect reference docs), which is
-moot here since the harness fix deliberately dropped it - do_sample=False / greedy is
-achieved via temperature=0.
+Greedy decoding note (verified against a real crash, not just docs): Inspect's HF
+provider decides do_sample at *model instantiation*, from model_args, not from
+GenerateConfig - `do_sample` defaults to True regardless of what GenerateConfig.temperature
+is set to. Passing `temperature=0` in GenerateConfig (as an earlier version of this file
+did) does NOT switch the provider to greedy; it gets forwarded straight to
+transformers.generate() with do_sample still True, which raises
+`ValueError: temperature (=0.0) has to be a strictly positive float` from
+TemperatureLogitsWarper. Greedy decoding therefore requires `-M do_sample=false` (CLI) /
+`model_args={"do_sample": False, ...}` (Python API) - GenerateConfig here only sets
+max_tokens/stop_seqs, deliberately no temperature.
 """
 
 import re
@@ -136,14 +142,16 @@ def blind_spots_scorer():
     return score
 
 
-# Shared decoding config: greedy (temperature=0) with a real stop sequence, same as
-# the harness fix in modal_runner.py / colab_notebook.ipynb.
-_GEN_CONFIG = GenerateConfig(temperature=0, max_tokens=60, stop_seqs=["\nQ:"])
+# Greedy decoding is set via model_args={"do_sample": False} / -M do_sample=false at
+# the CLI (see module docstring) - NOT via temperature here, which would crash
+# transformers.generate() since do_sample stays True regardless of temperature.
+_GEN_CONFIG = GenerateConfig(max_tokens=60, stop_seqs=["\nQ:"])
 
 
 @task
 def qwen35_blind_spots():
-    """Base model: few-shot anchored, chat template must be disabled via -M use_chat_template=false."""
+    """Base model: few-shot anchored, chat template must be disabled via -M use_chat_template=false.
+    Requires -M do_sample=false / model_args={"do_sample": False} for greedy decoding."""
     return Task(
         dataset=json_dataset("dataset/data/prompts.jsonl", record_to_sample),
         solver=[few_shot_anchor(), generate()],
@@ -160,10 +168,11 @@ def qwen35_blind_spots_baseline():
     max_tokens=400: even with thinking disabled, this model writes an explicit
     "Thinking Process:" narrative as plain text before its answer - 200 tokens was
     observed to truncate mid-reasoning on multi-step probes before a final answer.
+    Also requires -M do_sample=false for greedy decoding - see module docstring.
     """
     return Task(
         dataset=json_dataset("dataset/data/prompts.jsonl", record_to_sample),
         solver=generate(),
         scorer=blind_spots_scorer(),
-        config=GenerateConfig(temperature=0, max_tokens=400),
+        config=GenerateConfig(max_tokens=400),
     )
