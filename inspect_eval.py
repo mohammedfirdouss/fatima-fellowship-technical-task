@@ -74,14 +74,24 @@ def few_shot_anchor():
 
 
 def is_coherent(text: str) -> bool:
-    """Same heuristic as modal_runner.py / the notebook - a screen, not a judge."""
+    """Same heuristic as modal_runner.py / the notebook - a screen, not a judge.
+
+    A short numeric/symbolic answer ("12", "$10") is legitimately coherent on
+    its own; an earlier version also required >=35% ASCII letters, which
+    misclassified every purely-numeric correct answer as a format failure.
+    """
     stripped = text.strip()
     if not stripped:
         return False
     legible = sum(1 for ch in stripped if _COHERENCE_OK.match(ch))
     legible_ratio = legible / len(stripped)
-    alpha_ratio = sum(ch.isalpha() and ch.isascii() for ch in stripped) / len(stripped)
-    return legible_ratio >= 0.90 and alpha_ratio >= 0.35
+    if legible_ratio < 0.90:
+        return False
+    if len(stripped) >= 20:
+        most_common_ratio = max(stripped.count(ch) for ch in set(stripped)) / len(stripped)
+        if most_common_ratio > 0.5:
+            return False
+    return True
 
 
 def is_correct(model_output: str, expected: str) -> bool:
@@ -145,10 +155,15 @@ def qwen35_blind_spots():
 @task
 def qwen35_blind_spots_baseline():
     """Instruction-tuned baseline (Qwen/Qwen3.5-4B): chat template stays on (default),
-    no few-shot anchor needed - the model already expects a user-turn question."""
+    no few-shot anchor needed - the model already expects a user-turn question.
+
+    max_tokens=400: even with thinking disabled, this model writes an explicit
+    "Thinking Process:" narrative as plain text before its answer - 200 tokens was
+    observed to truncate mid-reasoning on multi-step probes before a final answer.
+    """
     return Task(
         dataset=json_dataset("dataset/data/prompts.jsonl", record_to_sample),
         solver=generate(),
         scorer=blind_spots_scorer(),
-        config=GenerateConfig(temperature=0, max_tokens=200),
+        config=GenerateConfig(temperature=0, max_tokens=400),
     )

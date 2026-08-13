@@ -165,17 +165,61 @@ the bfloat16 harness itself produces coherent, on-format output, not that the 58
 correct-rate reflects the model's actual reasoning ceiling. It should not be cited as
 the headline result.
 
-### Pass 2 (harness fixed, re-run pending)
+### Pass 2 (harness fixed, n=24 - 1 failure + 1 control per category, Colab/bfloat16)
 
 The generation harness has been fixed (see **Generation Harness** above: few-shot
-anchoring, no repetition penalty, a real stop sequence) and the notebook/Modal runner now
-always run controls alongside failure probes plus the `Qwen/Qwen3.5-4B` instruction-tuned
-baseline on the same prompts. **This pass has not been executed yet** - re-run the Colab
-notebook or `modal run modal_runner.py` and replace this section with the resulting
-failure-rate table (including the controls and baseline rows) before treating any
-correct-rate here as a finished result, and before linking/publishing this dataset.
+anchoring, no repetition penalty, a real stop sequence), and this pass ran controls
+alongside failure probes plus the `Qwen/Qwen3.5-4B` instruction-tuned baseline on the
+same prompts, via the Colab notebook.
 
-The full 84-prompt set (including controls) is in `prompts.jsonl` for a complete failure-rate comparison.
+**Per-group failure/coherence rates (n=24: 12 failure probes + 12 controls, one of each per category):**
+
+| model | group | n | coherent | correct | format_failure | reasoning_failure |
+|---|---|---|---|---|---|---|
+| `Qwen3.5-4B-Base` (bfloat16) | failure probes | 12 | 12/12 (100%) | 8/12 (67%) | 0/12 (0%) | 4/12 (33%) |
+| `Qwen3.5-4B-Base` (bfloat16) | controls | 12 | 12/12 (100%) | 10/12 (83%) | 0/12 (0%) | 2/12 (17%) |
+| `Qwen3.5-4B` baseline | failure probes | 12 | 12/12 (100%) | 5/12 (42%)* | 0/12 (0%) | 7/12 (58%)* |
+| `Qwen3.5-4B` baseline | controls | 12 | 12/12 (100%) | 12/12 (100%) | 0/12 (0%) | 0/12 (0%) |
+
+\* **Not a clean number - see the token-budget caveat below.**
+
+**Key findings:**
+
+- **Zero format failures anywhere.** Every one of the 24 generations under the fixed
+  harness was coherent, for both the base model and the instruct baseline. Combined with
+  Pass 1's 0% format-failure rate in bfloat16, this closes the "degenerate output" concern
+  the harness was rewritten to address.
+- **The base model outperforms the instruct baseline on the failure-probe set as measured
+  here (67% vs 42%) - but that comparison is not fair yet; see the caveat below.** The base
+  model answers tersely (e.g. `"9716"` for 347×28, `"12"` for the painted-cube probe -
+  both exactly correct), while the instruct model writes a verbose "Thinking Process:"
+  narrative before its answer.
+- **A coherence-heuristic bug was caught and fixed while processing this run.** The
+  original `is_coherent()` required >=35% ASCII-letter density, so short numeric/symbolic
+  answers like `"9716"`, `"12"`, `"3"`, `"$10"` were being flagged `output_coherent=false`
+  and mislabeled `format_failure` **even when they exactly matched the expected answer**
+  (`arith_f1`, `arith_c1`, `char_f1`, `crt_c1`, `spatial_f1` in the raw Colab output). Fixed
+  in `is_coherent()` (`modal_runner.py`, `inspect_eval.py`, the notebook) by dropping the
+  letter-density requirement and replacing it with a repeated-character/token-spam guard
+  that only applies to longer outputs - so it still catches genuine "symbol-salad" without
+  penalizing a bare correct number. `blind_spots_data.jsonl` has been relabeled in place
+  with the fixed heuristic (the raw `model_output` text is unchanged - only the derived
+  `output_coherent` / `answer_correct` / `failure_mode` fields were recomputed, so no
+  re-run was needed to fix this specific issue).
+- **The baseline's 42% correct-rate is a token-budget artifact, not a capability
+  measurement.** All 7 baseline `reasoning_failure` outputs (`arith_f1`, `crt_f1`,
+  `spatial_f1`, `logic_f1`, `physics_f1`, `temporal_f1`, `ling_f1`) are visibly truncated
+  mid-calculation or mid-sentence in `blind_spots_data.jsonl` - e.g. `arith_f1` cuts off at
+  `"...= 24 + 3 = 27$\n*"`, never reaching a final answer. Even with `enable_thinking=False`,
+  `Qwen/Qwen3.5-4B` still writes an explicit "Thinking Process:" narrative as plain text,
+  which ate the entire 200-token budget on multi-step probes before a final answer could be
+  emitted. **`max_new_tokens` for the baseline has been raised from 200 to 400** in
+  `modal_runner.py`, `inspect_eval.py`, and the notebook - the 42%/58% baseline numbers
+  above should be treated as a lower bound until re-run with the new budget.
+
+**Still pending:** the full 84-prompt set (currently only the 24-prompt Colab subset has
+been run) - use the Modal runner or the Inspect eval for that, both of which already pick
+up the coherence fix and the 400-token baseline budget.
 
 ## Failure Categories (5 probes + 2 controls each)
 

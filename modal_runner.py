@@ -91,20 +91,29 @@ _COHERENCE_OK = re.compile(r"[A-Za-z0-9 .,;:!?$%/()'\"\-\n]")
 
 
 def is_coherent(text: str) -> bool:
-    """Rough heuristic: is the output mostly normal English/QA text?
+    """Rough heuristic: is the output legible, non-degenerate text?
 
     Returns False for the "symbol-salad" outputs (heavy non-Latin scripts,
-    runaway punctuation, repeated single tokens). This is a screen, not a
-    judge - eyeball anything near the threshold.
+    runaway punctuation) and for repeated-character/token spam on longer
+    outputs. This is a screen, not a judge - eyeball anything near the
+    threshold. A short numeric or symbolic answer ("12", "$10") is a
+    legitimate coherent QA answer on its own, so low letter density alone
+    no longer counts against it - an earlier version required >=35% ASCII
+    letters, which misclassified every purely-numeric correct answer
+    (arithmetic, counts, dollar amounts) as a format failure.
     """
     stripped = text.strip()
     if len(stripped) < 1:
         return False
     legible = sum(1 for ch in stripped if _COHERENCE_OK.match(ch))
     legible_ratio = legible / len(stripped)
-    # Fraction of ASCII-alphabetic characters - garbage tends to be punctuation/digits.
-    alpha_ratio = sum(ch.isalpha() and ch.isascii() for ch in stripped) / len(stripped)
-    return legible_ratio >= 0.90 and alpha_ratio >= 0.35
+    if legible_ratio < 0.90:
+        return False
+    if len(stripped) >= 20:
+        most_common_ratio = max(stripped.count(ch) for ch in set(stripped)) / len(stripped)
+        if most_common_ratio > 0.5:
+            return False
+    return True
 
 
 def is_correct(model_output: str, expected: str) -> bool:
@@ -220,10 +229,12 @@ def run_probes() -> list[dict]:
         gc.collect()
         torch.cuda.empty_cache()
 
-    # --- Instruction-tuned baseline (bfloat16 only) -------------------------------
     # Not a dtype variant of the base model - a different (post-trained) checkpoint,
     # run via its chat template, so results live under a separate `baseline` key
-    # rather than inside `runs`.
+    # rather than inside `runs`. Even with enable_thinking=False, this model writes
+    # out an explicit "Thinking Process:" narrative as plain text before its answer,
+    # so max_new_tokens needs real headroom - 200 was observed to truncate mid-reasoning
+    # on multi-step probes (arithmetic, spatial, syllogisms) before a final answer.
     print(f"\n{'#' * 60}\n# Loading baseline {BASELINE_MODEL} in bfloat16\n{'#' * 60}")
     baseline_tokenizer = AutoTokenizer.from_pretrained(BASELINE_MODEL, cache_dir=CACHE_DIR)
     baseline_model = AutoModelForCausalLM.from_pretrained(
@@ -234,7 +245,7 @@ def run_probes() -> list[dict]:
     )
     baseline_model.eval()
 
-    def generate_baseline(prompt: str, max_new_tokens: int = 200) -> str:
+    def generate_baseline(prompt: str, max_new_tokens: int = 400) -> str:
         messages = [{"role": "user", "content": prompt.removeprefix("Q: ").removesuffix("\nA:")}]
         inputs = baseline_tokenizer.apply_chat_template(
             messages,

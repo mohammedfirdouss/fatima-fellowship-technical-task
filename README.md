@@ -91,8 +91,14 @@ a `repetition_penalty` on a base model, no stop sequence, and no controls or bas
 the model's actual reasoning. The harness now few-shot anchors every prompt with two
 generic Q/A exemplars, drops the repetition penalty, stops generation at a real stop
 sequence, and runs the instruction-tuned sibling `Qwen/Qwen3.5-4B` as a baseline on the
-same prompts. **Status: the harness has been fixed but not yet re-run** - see the
-Pass 1 / Pass 2 split in `dataset/README.md#results` before citing any correct-rate here.
+same prompts. **Status: the fixed harness has been run on a 24-prompt subset (Colab)** -
+zero format failures on either model, but re-running it also caught two more bugs: a
+coherence-heuristic bug that mislabeled short-but-correct numeric answers (e.g. `"9716"`,
+`"12"`) as format failures, now fixed and the existing data relabeled in place; and a
+200-token baseline budget that was truncating the instruct model's verbose reasoning
+before it reached an answer, now raised to 400. The full 84-prompt run (Modal or Inspect)
+is still pending. See the Pass 1 / Pass 2 split in `dataset/README.md#results` before
+citing any correct-rate here.
 
 **Format vs reasoning failure.** A base model can fail two very different ways: by
 emitting incoherent text (it never enters the Q&A frame) or by producing fluent-but-wrong
@@ -125,9 +131,10 @@ fine-tuning recommendations (datasets and sizes) for each root cause.
 1. Spot-check the auto-labels in `blind_spots_data.jsonl`.
 2. Use it to update `dataset/data/train.jsonl` and fill the **Pass 2** results table in
    `dataset/README.md` (replacing the preliminary Pass 1 table).
-3. Push to HuggingFace **only after Pass 2 is filled in** - the current Pass 1 numbers are
-   harness-limited (n=12, no controls, no baseline) and shouldn't be published as the
-   headline result:
+3. Push to HuggingFace **only after the full 84-prompt Pass 2 run** (Modal or Inspect) -
+   the 24-prompt Colab subset in `dataset/README.md#results` is real data from the fixed
+   harness, but it's still a subset, and the original Pass 1 numbers (n=12, no controls,
+   no baseline) shouldn't be published as the headline result:
 
 ```python
 from huggingface_hub import HfApi, login
